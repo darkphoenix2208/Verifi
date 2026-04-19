@@ -59,7 +59,7 @@ export function CoreBankingDashboard() {
       }
       setConnectionStatus("connecting");
       const wsUrl = getTransactionsWsUrl();
-      console.info("[FraudGuardian][WS] Connecting to:", wsUrl);
+      console.info("[Verifi][WS] Connecting to:", wsUrl);
       const socket = connectTransactionsSocket();
       socketRef.current = socket;
 
@@ -67,7 +67,7 @@ export function CoreBankingDashboard() {
         if (isUnmounted) {
           return;
         }
-        console.info("[FraudGuardian][WS] Connected");
+        console.info("[Verifi][WS] Connected");
         setConnectionStatus("connected");
         setErrorMessage("");
       };
@@ -76,7 +76,7 @@ export function CoreBankingDashboard() {
         if (isUnmounted) {
           return;
         }
-        console.error("[FraudGuardian][WS] Error event:", event);
+        console.error("[Verifi][WS] Error event:", event);
         setConnectionStatus("error");
         setErrorMessage("Live transaction stream encountered an error. Check browser console for details.");
       };
@@ -98,7 +98,7 @@ export function CoreBankingDashboard() {
           return;
         }
         console.warn(
-          `[FraudGuardian][WS] Closed code=${event.code} reason=${event.reason || "no-reason"} clean=${event.wasClean}`
+          `[Verifi][WS] Closed code=${event.code} reason=${event.reason || "no-reason"} clean=${event.wasClean}`
         );
         setConnectionStatus("disconnected");
         retryRef.current = window.setTimeout(connect, 2000);

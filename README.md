@@ -1,9 +1,9 @@
-# 🛡️ FraudGuardian
+# 🛡️ Verifi
 
 > **An End-to-End AI-Powered Banking Security & Fraud Prevention Ecosystem**  
 > **Author:** darkphoenix2208
 
-FraudGuardian is a comprehensive security suite designed for financial institutions to detect, investigate, and prevent fraudulent activities across multiple attack vectors. It utilizes state-of-the-art Machine Learning, Computer Vision, and Generative AI to secure the entire banking pipeline—from customer onboarding to transaction monitoring and internal employee risk assessment.
+Verifi is a comprehensive security suite designed for financial institutions to detect, investigate, and prevent fraudulent activities across multiple attack vectors. It utilizes state-of-the-art Machine Learning, Computer Vision, and Generative AI to secure the entire banking pipeline—from customer onboarding to transaction monitoring and internal employee risk assessment.
 
 ## 🌟 Key Features
 
@@ -38,7 +38,7 @@ FraudGuardian is a comprehensive security suite designed for financial instituti
 ## 📂 Project Structure
 
 ```text
-FraudGuardian/
+Verifi/
 │
 ├── api.py                      # Unified FastAPI Backend Server
 ├── Frontend/                   # React + Vite Frontend Application

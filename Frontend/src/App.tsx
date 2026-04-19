@@ -14,7 +14,7 @@ export default function App() {
         <header className="mb-6 rounded-2xl border border-zinc-800 bg-zinc-900/90 p-4 backdrop-blur">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-zinc-100">FraudGuardian Security Console</h1>
+              <h1 className="text-2xl font-bold text-zinc-100">Verifi Security Console</h1>
               <p className="mt-1 text-sm text-zinc-400">
                 End-to-end monitoring for transaction fraud and insider risk analytics.
               </p>

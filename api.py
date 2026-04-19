@@ -599,7 +599,7 @@ class LegacyBridge:
 # ---------------------------------------------------------------------------
 bridge = LegacyBridge()
 
-app = FastAPI(title="FraudGuardian API", version="1.0.0")
+app = FastAPI(title="Verifi API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
