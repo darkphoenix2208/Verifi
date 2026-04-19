@@ -10,6 +10,7 @@ seaborn
 opencv-python-headless
 mediapipe
 deepface
+tf-keras
 langchain
 langchain-google-genai
 scipy
