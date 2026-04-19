@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/dashboards/corebankingdashboard.tsx","./src/components/dashboards/employeeriskdashboard.tsx","./src/components/kyc/kycverificationpage.tsx","./src/services/wsservice.ts"],"version":"5.9.3"}

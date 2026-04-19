@@ -1,0 +1,9 @@
+node_modules/
+__pycache__/
+.env
+.venv/
+venv/
+*.pyc
+*.joblib
+dist/
+.DS_Store
