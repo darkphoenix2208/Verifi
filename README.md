@@ -1,102 +1,106 @@
-# 🛡️ Verifi
+# 🛡️ Verifi Security Console (FraudGuardian)
 
-> **An End-to-End AI-Powered Banking Security & Fraud Prevention Ecosystem**  
-> **Author:** darkphoenix2208
+Verifi is an enterprise-grade, **AI-driven fraud detection and surveillance platform**. It orchestrates a suite of advanced Machine Learning models—from ensemble classifiers to unsupervised anomaly detectors—to monitor transactions, analyze customer behavior, mitigate insider threats, and scrutinize decentralized finance (DeFi) interactions.
 
-Verifi is a comprehensive security suite designed for financial institutions to detect, investigate, and prevent fraudulent activities across multiple attack vectors. It utilizes state-of-the-art Machine Learning, Computer Vision, and Generative AI to secure the entire banking pipeline—from customer onboarding to transaction monitoring and internal employee risk assessment.
+At the core of Verifi is a **Multi-Tool Agentic AI Investigation Engine** that autonomously queries the platform's ML modules to synthesize step-by-step reasoning chains and generate comprehensive risk reports.
 
-## 🌟 Key Features
+---
 
-### 1. 💳 Transaction Fraud Detection
-- **Real-time Evaluation:** Analyzes transaction parameters (amount, location, frequency) using a sophisticated Machine Learning pipeline, streamed via WebSockets.
-- **Feature Engineering:** Calculates advanced metrics like merchant distance and time-based spending frequencies to accurately score fraud probability.
+## 🏗️ System Architecture
 
-### 2. 🕵️‍♂️ Behavioral Anomaly Detection
-- **Soft-Data Monitoring:** Tracks user interactions such as session length, click rates, device changes, and failed logins.
-- **Gaussian Mixture Models (GMM):** Compares live behavior against historical baselines to detect account hijackings and unusual behavioral patterns before a transaction even occurs.
+The platform is designed as a decoupled, high-performance architecture:
 
-### 3. 🤖 AI Investigator Agent
-- **GenAI Integration:** Powered by Google Gemini (`gemini-2.0-flash`).
-- **Automated Summarization:** When an anomaly or fraud is flagged, the agent instantly ingests the customer's historical profile and generates an actionable investigation report for human analysts, directly accessible from the Core Banking dashboard.
+- **Frontend (React + Vite + TailwindCSS + Framer Motion):**
+  A dark-themed, glassmorphism-styled security dashboard. It features live WebSocket feeds, dynamic ML model observatories, and animated reasoning chains for the AI Agent.
+- **Backend (FastAPI):**
+  A high-throughput API gateway that routes requests, maintains WebSocket connections for live DeFi radar feeds, and serves the ML inference engines.
+- **Agentic AI Core (LangChain + Gemini 2.0 Flash):**
+  A ReAct-style autonomous agent that accesses the ML models as tools to conduct complex fraud investigations.
 
-### 4. 🏢 Insider Threat Management (Employee Risk)
-- **Internal Monitoring:** A dedicated dashboard for tracking employee behavior (e.g., manual overrides, abnormal working hours).
-- **Predictive Risk Scoring:** Uses a trained Random Forest model to calculate risk scores and identify the top contributing factors for suspicious internal activities using live API endpoints.
+---
 
-### 5. 👁️ KYC Biometric Verification
-- **Liveness Detection:** Employs computer vision (MediaPipe) to track facial landmarks and calculate Eye Aspect Ratio (EAR) to ensure the user is physically present (e.g., actively blinking).
-- **Identity Matching:** Uses DeepFace to mathematically compare the live webcam selfie against an uploaded identification document (like an Aadhaar card) to prevent identity theft.
+## 🧠 Machine Learning Pipeline
 
-## 🛠️ Tech Stack
+Verifi employs a multi-layered, specialized ML architecture. Each risk domain is handled by a dedicated engine with its own preprocessing, modeling technique, and Explainable AI (XAI) methodology.
 
-- **Frontend:** React, TypeScript, Vite, TailwindCSS, Recharts
-- **Backend API:** FastAPI, Uvicorn, WebSockets
-- **Machine Learning:** Scikit-Learn, Pandas, NumPy
-- **Generative AI:** Google Gemini, LangChain
-- **Computer Vision:** OpenCV, MediaPipe, DeepFace
+### 1. Transaction Fraud Detector (Ensemble Model)
+* **Type:** Soft-Voting Classifier Ensemble (`RandomForest` + `GradientBoosting` + `LogisticRegression`)
+* **Preprocessing:** SMOTE (Synthetic Minority Over-sampling Technique) for handling extreme class imbalance.
+* **Features:** Amount, Haversine distance, temporal features (hour/day), frequency-encoded categorical variables.
+* **Explainability (XAI):** Uses **SHAP (SHapley Additive exPlanations) TreeExplainer** to extract the top contributing features for every flagged transaction, explaining *why* the model made its decision (e.g., `amt (impact: +0.342)`).
 
-## 📂 Project Structure
+### 2. Customer Behavior Anomaly Engine
+* **Type:** Unsupervised `GaussianMixture` (2-Component GMM with full covariance)
+* **Features:** Click velocity, session length, device change rates, location variance, and browser jump frequencies.
+* **Mechanics:** The model is trained on standard user distributions. It evaluates new sessions by computing the log-likelihood of the session's feature vector. Sessions falling below the 5th-percentile threshold are classified as anomalous.
+* **Risk Tiers:** NORMAL → SUSPICIOUS → ANOMALOUS
 
-```text
-Verifi/
-│
-├── api.py                      # Unified FastAPI Backend Server
-├── Frontend/                   # React + Vite Frontend Application
-│   ├── src/                    # UI Components (Core Banking, Employee Risk, KYC)
-│   └── package.json            # Node.js dependencies
-├── Transactions/               # ML Pipeline & Feature Engineering for transactions
-├── Agent/                      # GenAI investigation integration & customer profiles
-├── Customer Behavior/          # GMM models & anomaly tracking logs
-├── KYC/                        # Legacy KYC scripts
-└── README.md                   # Project documentation
-```
+### 3. Employee Insider Threat Scorer
+* **Type:** `RandomForestRegressor`
+* **Features:** Failed logins, manual overrides, after-hours access, work duration, and role-based policies.
+* **Mechanics:** Analyzes internal telemetry to predict a continuous risk score.
+* **Explainability:** Factor-based attribution identifies top risk indicators (e.g., "Frequent manual overrides").
+
+### 4. Crypto / DeFi Threat Assessment
+* **Type:** Unsupervised `IsolationForest` (150 estimators, 5% contamination)
+* **Features:** Transaction Value (ETH), Gas Used, Gas Price (Gwei).
+* **Mechanics:** Trains on a synthetic distribution mapping normal Ethereum mainnet activity. It flags outliers operating on the fringe of the feature space, injecting high risk scores directly into the heuristic crypto analysis engine.
+
+---
+
+## 🤖 Multi-Tool Agentic Investigation Engine
+
+Verifi replaces manual SOC (Security Operations Center) workflows with an autonomous AI investigator. 
+
+When a suspicious scenario is detected, the **LangChain ReAct Agent** engages:
+1. **Tool Execution:** The agent autonomously queries the Transaction Scorer, Behavior GMM, Employee Scorer, and Crypto Engine.
+2. **Reasoning Chain:** It constructs a step-by-step evidence trail (visible in the UI).
+3. **Synthesis:** Powered by Gemini 2.0 Flash, it synthesizes the isolated ML outputs into a coherent human-readable report.
+4. **Action:** It assigns a final risk tier (CRITICAL, HIGH, MEDIUM, LOW) and suggests actionable recommendations (e.g., "Freeze Account", "Require Step-Up Auth").
+
+*(Note: The system falls back gracefully to a robust rule-based engine if LLM API keys are unavailable, ensuring zero downtime).*
+
+---
+
+## 📊 ML Model Observatory
+
+A dedicated dashboard for ML Ops and Security Engineers to monitor model health in real-time.
+- **Model Metadata:** View training sample counts, anomaly thresholds, and operational status.
+- **Feature Importance:** Animated feature-importance bars display the live impact distribution of features across the models.
+- **Graceful Fallbacks:** The dashboard visually indicates if a model is running "active" inference or using synthetic "fallback" generation due to missing artifacts.
+
+---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
+- Python 3.9+
+- Node.js 18+
 
-- **Python 3.8+**
-- **Node.js 18+**
-- **Google Gemini API Key**
+### 1. Backend Setup
+```bash
+# Install Python dependencies
+pip install -r requirements.txt
 
-### 1. Backend Setup (FastAPI)
+# Set Environment Variables (Optional but recommended)
+export GOOGLE_API_KEY="your_gemini_key"
+export ALCHEMY_URL="your_alchemy_https_url"
+export ALCHEMY_WSS_URL="your_alchemy_wss_url"
+export ETHERSCAN_API_KEY="your_etherscan_key"
 
-1. Open a terminal in the root directory.
-2. Install the required Python dependencies:
-   ```bash
-   pip install fastapi uvicorn pydantic pandas numpy scikit-learn matplotlib seaborn opencv-python mediapipe deepface langchain langchain-google-genai scipy python-multipart
-   ```
-3. Set your Google Gemini API key:
-   ```bash
-   # On Windows (Command Prompt):
-   set GOOGLE_API_KEY="your_api_key_here"
-   # On Windows (PowerShell):
-   $env:GOOGLE_API_KEY="your_api_key_here"
-   # On macOS/Linux:
-   export GOOGLE_API_KEY="your_api_key_here"
-   ```
-4. Start the backend server:
-   ```bash
-   python api.py
-   ```
-   *(The API will run on `http://localhost:8000`)*
+# Run the FastAPI server
+uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+```
 
-### 2. Frontend Setup (React + Vite)
+### 2. Frontend Setup
+```bash
+cd Frontend
+npm install
 
-1. Open a **new** terminal in the `Frontend` directory:
-   ```bash
-   cd Frontend
-   ```
-2. Install the Node.js dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
-   *(The frontend will be accessible in your browser, typically at `http://localhost:5173`)*
+# Run the React/Vite development server
+npm run dev
+```
+Navigate to `http://localhost:5173` to access the Verifi Security Console.
 
 ---
-
-*Built to secure the future of finance.*
+*Built for the future of enterprise security.* 🛡️
