@@ -186,15 +186,68 @@ class TransactionScorer:
             prediction = int(self._pipeline.predict(X)[0])
             probability = float(self._pipeline.predict_proba(X)[0, 1])
 
+            # SHAP explainability — extract top contributing features
+            top_features = self._explain(X, all_feats)
+
             return {
                 "risk_score": round(probability, 4),
                 "decision": "FLAG" if prediction == 1 or probability >= 0.65 else "ALLOW",
                 "reason": f"ML model fraud probability: {probability:.2%}" if probability >= 0.65
                           else "Within expected behaviour",
+                "top_features": top_features,
             }
         except Exception as exc:
             print(f"[TransactionScorer] Scoring error: {exc}. Falling back to synthetic.")
             return self._synthetic_score(tx_data)
+
+    def _explain(self, X: "pd.DataFrame", feature_names: List[str]) -> List[str]:
+        """Use SHAP TreeExplainer to return top-3 contributing features."""
+        try:
+            import shap
+            # Get the preprocessing step and the classifier step
+            preprocessor = self._pipeline.named_steps.get("preprocessor")
+            classifier = self._pipeline.named_steps.get("classifier")
+            if preprocessor is None or classifier is None:
+                return []
+
+            X_transformed = preprocessor.transform(X)
+
+            # Get feature names after transformation
+            try:
+                transformed_names = preprocessor.get_feature_names_out()
+            except Exception:
+                transformed_names = [f"feat_{i}" for i in range(X_transformed.shape[1])]
+
+            # Try TreeExplainer on the underlying estimator (works for VotingClassifier sub-models)
+            # Fall back to KernelExplainer if needed
+            try:
+                # For VotingClassifier, use the RandomForest sub-estimator
+                if hasattr(classifier, 'estimators_'):
+                    rf_model = classifier.estimators_[0]  # RandomForest is first
+                else:
+                    rf_model = classifier
+                explainer = shap.TreeExplainer(rf_model)
+                shap_values = explainer.shap_values(X_transformed)
+                # For binary classification, shap_values may be a list of 2 arrays
+                if isinstance(shap_values, list):
+                    sv = shap_values[1][0]  # class 1 (fraud) for first sample
+                else:
+                    sv = shap_values[0]
+            except Exception:
+                return []
+
+            # Pair feature names with absolute SHAP values, sort descending
+            pairs = sorted(
+                zip(transformed_names, sv),
+                key=lambda p: abs(p[1]),
+                reverse=True,
+            )
+            top = pairs[:3]
+            return [f"{name} (impact: {val:+.3f})" for name, val in top]
+        except ImportError:
+            return []  # shap not installed
+        except Exception:
+            return []
 
     @staticmethod
     def _synthetic_score(_tx_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -203,6 +256,7 @@ class TransactionScorer:
             "risk_score": score,
             "decision": "FLAG" if score >= 0.65 else "ALLOW",
             "reason": "Anomalous velocity pattern" if score >= 0.65 else "Within expected behavior",
+            "top_features": [],
         }
 
 
@@ -725,6 +779,35 @@ async def transactions_live(websocket: WebSocket) -> None:
         return
     except Exception:
         await websocket.close()
+
+
+# ---------------------------------------------------------------------------
+# Customer Behavior Anomaly Detection (GMM)
+# ---------------------------------------------------------------------------
+class SessionScoreRequest(BaseModel):
+    clicks_last_hour: float = 20
+    avg_time_between_clicks: float = 40
+    session_length: float = 800
+    num_failed_logins: float = 0
+    device_change_rate: float = 1
+    location_variance: float = 1
+    browser_jump_freq: float = 1
+    actions_per_session: float = 25
+
+
+@app.post("/api/behavior/score")
+async def score_behavior(session: SessionScoreRequest) -> Dict[str, Any]:
+    """Score a user session for anomalous behavior using the GMM engine."""
+    try:
+        from behavior_engine import behavior_detector
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Behavior engine unavailable: {exc}",
+        ) from exc
+
+    result = behavior_detector.score_session(session.model_dump())
+    return result
 
 
 # ---------------------------------------------------------------------------

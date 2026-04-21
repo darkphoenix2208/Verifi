@@ -1,8 +1,22 @@
+"""
+Transactions/model.py — Credit Card Fraud Detection with Ensemble ML Pipeline
+
+Multi-model VotingClassifier (RandomForest + GradientBoosting + LogisticRegression)
+with SMOTE oversampling and SHAP explainability.
+
+Author: darkphoenix2208
+"""
+
 import pandas as pd
 import numpy as np
 import os
 from datetime import datetime
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import (
+    RandomForestClassifier,
+    GradientBoostingClassifier,
+    VotingClassifier,
+)
+from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
@@ -83,8 +97,6 @@ def feature_engineering(df: pd.DataFrame, ref_freq_maps=None):
     # If 'dob' not in columns, age will be all NaN
     if 'dob' in df.columns:
         df['dob_dt'] = pd.to_datetime(df['dob'], errors='coerce')
-        # Debug check (can uncomment if needed):
-        # print("trans_dt dtype:", df['trans_dt'].dtype, "dob_dt dtype:", df['dob_dt'].dtype)
         # Compute age in years via subtraction of datetime64 Series
         df['age'] = (df['trans_dt'] - df['dob_dt']).dt.days / 365.25
         # Implausible ages → NaN
@@ -150,6 +162,32 @@ def build_preprocessor(numeric_features, categorical_features):
     return preprocessor
 
 
+def build_ensemble_classifier():
+    """Build a soft-voting ensemble of 3 complementary classifiers."""
+    rf = RandomForestClassifier(
+        n_estimators=100,
+        class_weight='balanced',
+        random_state=42,
+        n_jobs=-1,
+    )
+    gb = GradientBoostingClassifier(
+        n_estimators=100,
+        learning_rate=0.1,
+        max_depth=5,
+        random_state=42,
+    )
+    lr = LogisticRegression(
+        class_weight='balanced',
+        max_iter=500,
+        random_state=42,
+    )
+    ensemble = VotingClassifier(
+        estimators=[('rf', rf), ('gb', gb), ('lr', lr)],
+        voting='soft',
+    )
+    return ensemble
+
+
 def main():
     # Paths to your CSV files; adjust as needed
     train_path = 'CreditCardDataset/fraudTrain.csv'
@@ -210,33 +248,25 @@ def main():
     # 7. Build preprocessing pipeline
     preprocessor = build_preprocessor(numeric_features, categorical_features)
 
-    # 8. Build full pipeline with classifier, handling imbalance
+    # 8. Build full pipeline with ENSEMBLE classifier
+    ensemble = build_ensemble_classifier()
+
     if use_smote:
         pipeline = ImbPipeline(steps=[
             ('preprocessor', preprocessor),
             ('smote', SMOTE(random_state=42)),
-            ('classifier', RandomForestClassifier(
-                n_estimators=100,
-                class_weight='balanced',
-                random_state=42,
-                n_jobs=-1
-            ))
+            ('classifier', ensemble),
         ])
     else:
         pipeline = Pipeline(steps=[
             ('preprocessor', preprocessor),
-            ('classifier', RandomForestClassifier(
-                n_estimators=100,
-                class_weight='balanced',
-                random_state=42,
-                n_jobs=-1
-            ))
+            ('classifier', ensemble),
         ])
 
     # 9. Train
-    print("Starting training...")
+    print("Starting ensemble training (RF + GBM + LR)...")
     pipeline.fit(X_train, y_train)
-    print("Training completed.")
+    print("Ensemble training completed.")
 
     # 10. Evaluate on test set (if labels available)
     if y_test is not None:
@@ -265,10 +295,10 @@ def main():
     else:
         print("Skipping evaluation since 'is_fraud' not in test data.")
 
-    # 11. (Optional) Save the trained pipeline for later use
+    # 11. Save the trained pipeline for later use
     from joblib import dump
     dump(pipeline, 'fraud_detection_pipeline.joblib')
-    print("Saved trained pipeline to 'fraud_detection_pipeline.joblib'.")
+    print("Saved ensemble pipeline to 'fraud_detection_pipeline.joblib'.")
 
 
 if __name__ == "__main__":

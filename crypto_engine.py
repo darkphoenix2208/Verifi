@@ -16,7 +16,9 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List
 
+import numpy as np
 import requests
+from sklearn.ensemble import IsolationForest
 from web3 import Web3
 from web3.exceptions import TransactionNotFound
 
@@ -46,6 +48,45 @@ INFINITE_APPROVAL_VALUE = "f" * 64
 # ---------------------------------------------------------------------------
 ETHERSCAN_API_KEY = os.environ.get("ETHERSCAN_API_KEY", "")
 _contract_name_cache: Dict[str, str] = {}
+
+
+# ---------------------------------------------------------------------------
+# ML-Based Anomaly Detector (IsolationForest)
+# ---------------------------------------------------------------------------
+class CryptoAnomalyScorer:
+    """IsolationForest trained on typical Ethereum transaction feature ranges.
+
+    Features: [value_eth, gas_used, gas_price_gwei]
+    Trained on synthetic distributions modelling normal mainnet activity.
+    """
+
+    def __init__(self) -> None:
+        rng = np.random.RandomState(42)
+        n = 2000
+        # Synthetic normal distributions based on typical mainnet stats
+        normal_value = rng.exponential(scale=0.5, size=n)      # most txs < 1 ETH
+        normal_gas = rng.normal(loc=55000, scale=30000, size=n).clip(21000, 500000)
+        normal_gasprice = rng.normal(loc=25, scale=15, size=n).clip(1, 200)
+        X_train = np.column_stack([normal_value, normal_gas, normal_gasprice])
+
+        self._model = IsolationForest(
+            n_estimators=150,
+            contamination=0.05,
+            random_state=42,
+        )
+        self._model.fit(X_train)
+
+    def score(self, value_eth: float, gas_used: int, gas_price_gwei: float) -> float:
+        """Return anomaly score. Negative = more anomalous."""
+        X = np.array([[value_eth, float(gas_used), gas_price_gwei]])
+        return float(self._model.score_samples(X)[0])
+
+    def is_anomaly(self, value_eth: float, gas_used: int, gas_price_gwei: float) -> bool:
+        X = np.array([[value_eth, float(gas_used), gas_price_gwei]])
+        return int(self._model.predict(X)[0]) == -1
+
+
+_crypto_scorer = CryptoAnomalyScorer()
 
 
 def _get_web3() -> Web3:
@@ -222,6 +263,21 @@ def analyze_eth_transaction(tx_hash: str) -> Dict[str, Any]:
                 "WARNING: Unlimited (uint256 max) token approval detected — "
                 "attacker can drain the entire token balance."
             )
+
+    # Heuristic 5: ML Anomaly Detection (IsolationForest)
+    gas_used_val = receipt.get("gasUsed", 21000) or 21000
+    gas_price_raw = tx.get("gasPrice", 0) or 0
+    gas_price_gwei = float(Web3.from_wei(gas_price_raw, "gwei"))
+    try:
+        if _crypto_scorer.is_anomaly(value_eth, gas_used_val, gas_price_gwei):
+            anomaly_score = _crypto_scorer.score(value_eth, gas_used_val, gas_price_gwei)
+            risk_score += 25
+            flags.append(
+                f"ML_ANOMALY_DETECTION: IsolationForest flagged unusual feature pattern "
+                f"(anomaly_score={anomaly_score:.3f})"
+            )
+    except Exception:
+        pass  # ML scorer failure should never block analysis
 
     # ------------------------------------------------------------------
     # 4b. Etherscan contract translation (only for flagged transactions)
