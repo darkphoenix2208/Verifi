@@ -21,7 +21,7 @@ export default function App() {
               </p>
             </div>
 
-            <nav className="inline-flex rounded-xl border border-zinc-700 bg-zinc-950 p-1">
+            <nav className="flex flex-wrap items-center gap-1 rounded-xl border border-zinc-700 bg-zinc-950 p-1 lg:inline-flex">
               <button
                 type="button"
                 onClick={() => setViewMode("core-banking")}

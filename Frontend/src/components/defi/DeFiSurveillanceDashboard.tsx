@@ -10,6 +10,7 @@ import {
 /* ------------------------------------------------------------------ */
 interface CryptoThreatReport {
   transaction_hash: string;
+  id?: string;
   from?: string;
   to?: string;
   value_eth: number;
@@ -73,6 +74,7 @@ export function DeFiSurveillanceDashboard() {
         try {
           const report = JSON.parse(event.data) as CryptoThreatReport;
           if (report.error) return; // skip error frames
+          if (!report.id) report.id = crypto.randomUUID(); // Stable key for animations
           setLiveThreats((prev) => [report, ...prev].slice(0, MAX_THREATS));
           setThreatCount((c) => c + 1);
         } catch {
@@ -252,7 +254,8 @@ export function DeFiSurveillanceDashboard() {
               const rc = riskColor(threat.risk_level);
               return (
                 <motion.div
-                  key={`${threat.transaction_hash}-${idx}`}
+                  layout
+                  key={threat.id}
                   initial={{ opacity: 0, y: -40, scale: 0.97 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.95 }}
