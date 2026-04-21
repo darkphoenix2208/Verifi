@@ -99,6 +99,20 @@ class TransactionEvent(BaseModel):
     ts: float
 
 
+class CryptoRiskReport(BaseModel):
+    transaction_hash: str
+    from_address: Optional[str] = Field(None, alias="from")
+    to_address: Optional[str] = Field(None, alias="to")
+    value_eth: float
+    risk_score: int = Field(..., ge=0, le=100)
+    risk_level: str
+    flags: List[str]
+    gas_used: Optional[int] = None
+    block_number: Optional[int] = None
+    status: Optional[str] = None
+    error: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Transaction ML Scorer — uses real pipeline from Transactions/
 # ---------------------------------------------------------------------------
@@ -710,6 +724,34 @@ async def transactions_live(websocket: WebSocket) -> None:
         return
     except Exception:
         await websocket.close()
+
+
+# ---------------------------------------------------------------------------
+# Crypto / DeFi Surveillance
+# ---------------------------------------------------------------------------
+@app.get("/api/crypto/analyze/{tx_hash}")
+async def analyze_crypto_transaction(tx_hash: str) -> Dict[str, Any]:
+    """Analyse an Ethereum transaction for malicious activity."""
+    try:
+        from crypto_engine import analyze_eth_transaction
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Crypto engine unavailable — web3 dependency missing: {exc}",
+        ) from exc
+
+    try:
+        report = analyze_eth_transaction(tx_hash)
+        if "error" in report:
+            raise HTTPException(status_code=502, detail=report["error"])
+        return report
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Crypto analysis failed: {exc}",
+        ) from exc
 
 
 if __name__ == "__main__":

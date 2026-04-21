@@ -2,8 +2,9 @@ import { useState } from "react";
 import { CoreBankingDashboard } from "./components/dashboards/CoreBankingDashboard";
 import { EmployeeRiskDashboard } from "./components/dashboards/EmployeeRiskDashboard";
 import { KycVerificationPage } from "./components/kyc/KycVerificationPage";
+import { DeFiSurveillanceDashboard } from "./components/defi/DeFiSurveillanceDashboard";
 
-type ViewMode = "core-banking" | "employee-risk" | "kyc-verification";
+type ViewMode = "core-banking" | "employee-risk" | "kyc-verification" | "defi-surveillance";
 
 export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>("core-banking");
@@ -54,6 +55,17 @@ export default function App() {
               >
                 KYC Verification
               </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("defi-surveillance")}
+                className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                  viewMode === "defi-surveillance"
+                    ? "bg-blue-600 text-white"
+                    : "text-zinc-300 hover:bg-zinc-800"
+                }`}
+              >
+                DeFi Surveillance
+              </button>
             </nav>
           </div>
         </header>
@@ -61,6 +73,7 @@ export default function App() {
         {viewMode === "core-banking" ? <CoreBankingDashboard /> : null}
         {viewMode === "employee-risk" ? <EmployeeRiskDashboard /> : null}
         {viewMode === "kyc-verification" ? <KycVerificationPage /> : null}
+        {viewMode === "defi-surveillance" ? <DeFiSurveillanceDashboard /> : null}
       </div>
     </main>
   );
