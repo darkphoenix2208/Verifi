@@ -145,9 +145,8 @@ def analyze_eth_transaction(tx_hash: str) -> Dict[str, Any]:
         )
 
     # Heuristic 4: Wallet Drainer — ERC-20 / ERC-721 Approval Phishing
-    input_data: str = (tx.get("input") or "").lower()
-    if input_data == "" and hasattr(tx, "data"):
-        input_data = (tx.get("data") or "").lower()
+    raw_input = tx.get("input", b"")
+    input_data: str = Web3.to_hex(raw_input).lower() if raw_input else ""
 
     if input_data.startswith(APPROVE_SELECTOR) or input_data.startswith(
         SET_APPROVAL_FOR_ALL_SELECTOR
