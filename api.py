@@ -110,6 +110,7 @@ class CryptoRiskReport(BaseModel):
     gas_used: Optional[int] = None
     block_number: Optional[int] = None
     status: Optional[str] = None
+    contract_name: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -752,6 +753,119 @@ async def analyze_crypto_transaction(tx_hash: str) -> Dict[str, Any]:
             status_code=500,
             detail=f"Crypto analysis failed: {exc}",
         ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Crypto Radar — Live WebSocket (real mempool)
+# ---------------------------------------------------------------------------
+@app.websocket("/api/ws/crypto/radar")
+async def crypto_radar_live(websocket: WebSocket) -> None:
+    """Stream flagged pending transactions from the Ethereum mempool."""
+    await websocket.accept()
+
+    alchemy_wss = os.environ.get("ALCHEMY_WSS_URL", "")
+    if not alchemy_wss:
+        await websocket.send_json({"error": "ALCHEMY_WSS_URL not configured"})
+        await websocket.close()
+        return
+
+    try:
+        from web3 import AsyncWeb3
+        from web3.providers import WebSocketProvider
+        from crypto_engine import analyze_eth_transaction
+
+        async with AsyncWeb3(WebSocketProvider(alchemy_wss)) as w3:
+            sub_id = await w3.eth.subscribe("pendingTransactions")
+            async for msg in w3.socket.process_subscriptions():
+                tx_hash = msg["result"]
+                try:
+                    loop = asyncio.get_event_loop()
+                    report = await loop.run_in_executor(
+                        None, analyze_eth_transaction, tx_hash
+                    )
+                    if report.get("risk_level") in ("WARNING", "CRITICAL"):
+                        await websocket.send_json(report)
+                except Exception:
+                    continue
+    except WebSocketDisconnect:
+        return
+    except Exception as exc:
+        try:
+            await websocket.send_json({"error": f"Radar error: {exc}"})
+            await websocket.close()
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Crypto Radar — Demo WebSocket (hardcoded realistic threats)
+# ---------------------------------------------------------------------------
+_DEMO_THREATS = [
+    {
+        "transaction_hash": "0x8a3b1f...e7d2c4 (simulated)",
+        "from": "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
+        "to": "0xd90e2f925DA726b50C4Ed8D0Fb90Ad053324F31b",
+        "value_eth": 245.8712,
+        "risk_score": 100,
+        "risk_level": "CRITICAL",
+        "flags": [
+            "MIXER_INTERACTION: Transaction involves Tornado Cash (0xd90e2f925da726b50c4ed8d0fb90ad053324f31b)",
+            "HIGH_VALUE_WHALE_TRANSFER: Transaction value (245.8712 ETH) exceeds 100 ETH",
+        ],
+        "gas_used": 21000,
+        "block_number": 19842351,
+        "status": "success",
+        "contract_name": "Tornado Cash Router",
+    },
+    {
+        "transaction_hash": "0xc4e91d...b38f07 (simulated)",
+        "from": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        "to": "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
+        "value_eth": 0.0,
+        "risk_score": 60,
+        "risk_level": "WARNING",
+        "flags": [
+            "CRITICAL: ERC-20/NFT Approval Signature Detected. Possible Wallet Drainer phishing attempt.",
+            "WARNING: Unlimited (uint256 max) token approval detected — attacker can drain the entire token balance.",
+        ],
+        "gas_used": 48210,
+        "block_number": 19842387,
+        "status": "success",
+        "contract_name": "Uniswap V3: Router 2",
+    },
+    {
+        "transaction_hash": "0xf7a20e...91dc53 (simulated)",
+        "from": "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984",
+        "to": None,
+        "value_eth": 0.0,
+        "risk_score": 40,
+        "risk_level": "WARNING",
+        "flags": [
+            "SUSPICIOUS_CONTRACT_CREATION: Contract deployed at 0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD",
+        ],
+        "gas_used": 1547832,
+        "block_number": 19842412,
+        "status": "success",
+        "contract_name": None,
+    },
+]
+
+
+@app.websocket("/api/ws/crypto/radar/demo")
+async def crypto_radar_demo(websocket: WebSocket) -> None:
+    """Cycle through hardcoded realistic threat reports every 3 seconds."""
+    await websocket.accept()
+    try:
+        idx = 0
+        while True:
+            await asyncio.sleep(3)
+            report = _DEMO_THREATS[idx % len(_DEMO_THREATS)]
+            await websocket.send_json(report)
+            idx += 1
+    except WebSocketDisconnect:
+        return
+    except Exception:
+        await websocket.close()
 
 
 if __name__ == "__main__":

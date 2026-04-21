@@ -6,6 +6,7 @@ heuristic-based risk analysis on individual transactions.
 
 Environment Variables:
     ALCHEMY_URL: Full Alchemy HTTP endpoint for Ethereum Mainnet.
+    ETHERSCAN_API_KEY: API key for Etherscan contract name lookups.
 
 Author: darkphoenix2208
 """
@@ -15,6 +16,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List
 
+import requests
 from web3 import Web3
 from web3.exceptions import TransactionNotFound
 
@@ -39,6 +41,12 @@ SET_APPROVAL_FOR_ALL_SELECTOR = "0xa22cb465"  # setApprovalForAll(address,bool)
 # Infinite approval sentinel (2**256 - 1 encoded as 64-char hex)
 INFINITE_APPROVAL_VALUE = "f" * 64
 
+# ---------------------------------------------------------------------------
+# Etherscan contract name translation (cached, rate-limit safe)
+# ---------------------------------------------------------------------------
+ETHERSCAN_API_KEY = os.environ.get("ETHERSCAN_API_KEY", "")
+_contract_name_cache: Dict[str, str] = {}
+
 
 def _get_web3() -> Web3:
     """Initialise and return a Web3 instance connected to Alchemy."""
@@ -56,6 +64,46 @@ def _get_web3() -> Web3:
     return w3
 
 
+def get_contract_name(address: str) -> str:
+    """
+    Lookup a contract's verified name via the Etherscan API.
+
+    Results are cached in-memory so each address is only queried once.
+    Returns "Unknown/Unverified Contract" on any failure.
+    """
+    addr_lower = address.lower()
+
+    if addr_lower in _contract_name_cache:
+        return _contract_name_cache[addr_lower]
+
+    if not ETHERSCAN_API_KEY:
+        _contract_name_cache[addr_lower] = "Unknown/Unverified Contract"
+        return "Unknown/Unverified Contract"
+
+    try:
+        resp = requests.get(
+            "https://api.etherscan.io/api",
+            params={
+                "module": "contract",
+                "action": "getsourcecode",
+                "address": address,
+                "apikey": ETHERSCAN_API_KEY,
+            },
+            timeout=5,
+        )
+        data = resp.json()
+        if data.get("status") == "1" and data.get("result"):
+            name = data["result"][0].get("ContractName", "")
+            if name:
+                _contract_name_cache[addr_lower] = name
+                return name
+    except Exception:
+        pass
+
+    _contract_name_cache[addr_lower] = "Unknown/Unverified Contract"
+    return "Unknown/Unverified Contract"
+
+
 def analyze_eth_transaction(tx_hash: str) -> Dict[str, Any]:
     """
     Pull an Ethereum transaction by hash and evaluate it against a set of
@@ -71,12 +119,12 @@ def analyze_eth_transaction(tx_hash: str) -> Dict[str, Any]:
     dict
         Structured risk report containing:
         - transaction_hash
-        - from
-        - to
+        - from / to
         - value_eth
         - risk_score   (0-100, capped)
         - risk_level   (SAFE | WARNING | CRITICAL)
         - flags        (list of triggered heuristic descriptions)
+        - contract_name (Etherscan-resolved, only when risk > 0)
     """
 
     # ------------------------------------------------------------------
@@ -97,10 +145,12 @@ def analyze_eth_transaction(tx_hash: str) -> Dict[str, Any]:
     except Exception as exc:
         return _error_response(tx_hash, f"Failed to fetch transaction: {exc}")
 
+    # Receipt may be unavailable for pending transactions — continue gracefully
+    receipt: Dict[str, Any] = {}
     try:
-        receipt = w3.eth.get_transaction_receipt(tx_hash)
-    except Exception as exc:
-        return _error_response(tx_hash, f"Failed to fetch transaction receipt: {exc}")
+        receipt = dict(w3.eth.get_transaction_receipt(tx_hash))
+    except Exception:
+        pass  # Pending tx — heuristics still run without receipt data
 
     # ------------------------------------------------------------------
     # 3. Extract core fields
@@ -163,16 +213,22 @@ def analyze_eth_transaction(tx_hash: str) -> Dict[str, Any]:
         )
 
         # Sub-signal: check for infinite / extremely high approval value
-        # approve calldata: 4-byte selector + 32-byte address + 32-byte value
         if (
             input_data.startswith(APPROVE_SELECTOR)
-            and len(input_data) >= 138  # 0x + 4-byte sel + 64 + 64
+            and len(input_data) >= 138
             and input_data[74:138] == INFINITE_APPROVAL_VALUE
         ):
             flags.append(
                 "WARNING: Unlimited (uint256 max) token approval detected — "
                 "attacker can drain the entire token balance."
             )
+
+    # ------------------------------------------------------------------
+    # 4b. Etherscan contract translation (only for flagged transactions)
+    # ------------------------------------------------------------------
+    contract_name = None
+    if risk_score > 0 and to_addr:
+        contract_name = get_contract_name(to_addr)
 
     # Cap the risk score
     risk_score = min(risk_score, RISK_SCORE_CAP)
@@ -201,6 +257,7 @@ def analyze_eth_transaction(tx_hash: str) -> Dict[str, Any]:
         "gas_used": receipt.get("gasUsed"),
         "block_number": tx.get("blockNumber"),
         "status": "success" if receipt.get("status") == 1 else "failed",
+        "contract_name": contract_name,
     }
 
 
@@ -214,5 +271,6 @@ def _error_response(tx_hash: str, error_message: str) -> Dict[str, Any]:
         "risk_score": 0,
         "risk_level": "UNKNOWN",
         "flags": [],
+        "contract_name": None,
         "error": error_message,
     }

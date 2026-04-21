@@ -1,6 +1,14 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  getCryptoRadarWsUrl,
+  getCryptoRadarDemoWsUrl,
+} from "../../services/wsService";
 
-interface CryptoRiskReport {
+/* ------------------------------------------------------------------ */
+/* Types                                                               */
+/* ------------------------------------------------------------------ */
+interface CryptoThreatReport {
   transaction_hash: string;
   from?: string;
   to?: string;
@@ -11,205 +19,350 @@ interface CryptoRiskReport {
   gas_used?: number;
   block_number?: number;
   status?: string;
+  contract_name?: string | null;
+  error?: string;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+type RadarMode = "demo" | "live";
+type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 
+const MAX_THREATS = 50;
+
+/* ------------------------------------------------------------------ */
+/* Component                                                           */
+/* ------------------------------------------------------------------ */
 export function DeFiSurveillanceDashboard() {
-  const [txHash, setTxHash] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [report, setReport] = useState<CryptoRiskReport | null>(null);
-  const [error, setError] = useState<string>("");
+  const [mode, setMode] = useState<RadarMode>("demo");
+  const [liveThreats, setLiveThreats] = useState<CryptoThreatReport[]>([]);
+  const [connectionStatus, setConnectionStatus] =
+    useState<ConnectionStatus>("connecting");
+  const [threatCount, setThreatCount] = useState(0);
 
-  const handleScan = async () => {
-    if (!txHash.trim()) {
-      setError("Please enter a transaction hash.");
-      return;
-    }
+  const socketRef = useRef<WebSocket | null>(null);
+  const retryRef = useRef<number | null>(null);
 
-    setLoading(true);
-    setError("");
-    setReport(null);
+  /* WebSocket lifecycle -------------------------------------------- */
+  useEffect(() => {
+    let unmounted = false;
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/crypto/analyze/${txHash.trim()}`);
-      const data = await response.json();
+    // Clear previous threats on mode switch
+    setLiveThreats([]);
+    setThreatCount(0);
 
-      if (!response.ok) {
-        throw new Error(data.detail || "Failed to analyze transaction.");
-      }
+    const connect = () => {
+      if (unmounted) return;
+      setConnectionStatus("connecting");
 
-      setReport(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An unknown error occurred.");
-    } finally {
-      setLoading(false);
-    }
-  };
+      const wsUrl =
+        mode === "demo" ? getCryptoRadarDemoWsUrl() : getCryptoRadarWsUrl();
+      const socket = new WebSocket(wsUrl);
+      socketRef.current = socket;
 
-  const getRiskColorClass = (level: string) => {
+      socket.onopen = () => {
+        if (unmounted) return;
+        setConnectionStatus("connected");
+      };
+
+      socket.onerror = () => {
+        if (unmounted) return;
+        setConnectionStatus("error");
+      };
+
+      socket.onmessage = (event) => {
+        if (unmounted) return;
+        try {
+          const report = JSON.parse(event.data) as CryptoThreatReport;
+          if (report.error) return; // skip error frames
+          setLiveThreats((prev) => [report, ...prev].slice(0, MAX_THREATS));
+          setThreatCount((c) => c + 1);
+        } catch {
+          // malformed payload — ignore
+        }
+      };
+
+      socket.onclose = () => {
+        if (unmounted) return;
+        setConnectionStatus("disconnected");
+        retryRef.current = window.setTimeout(connect, 2500);
+      };
+    };
+
+    connect();
+
+    return () => {
+      unmounted = true;
+      if (retryRef.current) window.clearTimeout(retryRef.current);
+      if (socketRef.current) socketRef.current.close();
+    };
+  }, [mode]);
+
+  /* Helpers -------------------------------------------------------- */
+  const riskColor = (level: string) => {
     switch (level.toUpperCase()) {
       case "CRITICAL":
-        return "text-red-500";
+        return { text: "text-red-400", bg: "bg-red-500/15", border: "border-red-500/40", glow: "shadow-red-500/20" };
       case "WARNING":
-        return "text-yellow-500";
-      case "SAFE":
-        return "text-emerald-500";
+        return { text: "text-amber-400", bg: "bg-amber-500/15", border: "border-amber-500/40", glow: "shadow-amber-500/20" };
       default:
-        return "text-zinc-500";
+        return { text: "text-zinc-400", bg: "bg-zinc-500/15", border: "border-zinc-500/40", glow: "shadow-zinc-500/10" };
     }
   };
 
-  const getRiskBgClass = (level: string) => {
-    switch (level.toUpperCase()) {
-      case "CRITICAL":
-        return "bg-red-500/10 border-red-500/30";
-      case "WARNING":
-        return "bg-yellow-500/10 border-yellow-500/30";
-      case "SAFE":
-        return "bg-emerald-500/10 border-emerald-500/30";
-      default:
-        return "bg-zinc-500/10 border-zinc-500/30";
-    }
-  };
+  const statusDot =
+    connectionStatus === "connected"
+      ? "bg-emerald-400"
+      : connectionStatus === "connecting"
+        ? "bg-blue-400"
+        : connectionStatus === "error"
+          ? "bg-red-400"
+          : "bg-zinc-500";
 
+  const statusLabel =
+    connectionStatus === "connected"
+      ? mode === "demo"
+        ? "DEMO: Streaming Simulated Threats"
+        : "LIVE: Scanning Ethereum Mempool"
+      : connectionStatus === "connecting"
+        ? "CONNECTING..."
+        : connectionStatus === "error"
+          ? "CONNECTION ERROR"
+          : "RECONNECTING...";
+
+  /* Render --------------------------------------------------------- */
   return (
-    <section className="mx-auto w-full max-w-4xl space-y-6">
-      {/* Search Header */}
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-6 shadow-lg">
-        <h2 className="mb-4 text-xl font-bold text-zinc-100">DeFi & Crypto Surveillance</h2>
-        <p className="mb-6 text-sm text-zinc-400">
-          Enter an Ethereum transaction hash to perform a real-time risk analysis. Our engine checks for mixer interactions, massive whale transfers, and suspicious contract creations.
-        </p>
-
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <input
-            type="text"
-            placeholder="0x..."
-            value={txHash}
-            onChange={(e) => setTxHash(e.target.value)}
-            className="flex-1 rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            onKeyDown={(e) => e.key === "Enter" && handleScan()}
-          />
-          <button
-            type="button"
-            onClick={handleScan}
-            disabled={loading}
-            className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:opacity-50"
-          >
-            {loading ? (
-              <>
-                <svg className="mr-2 h-4 w-4 animate-spin text-white" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Scanning...
-              </>
-            ) : (
-              "Scan Transaction"
-            )}
-          </button>
-        </div>
-
-        {error && (
-          <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-            {error}
+    <section className="mx-auto w-full max-w-5xl space-y-5">
+      {/* ── Radar Header ── */}
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/95 p-5 shadow-lg backdrop-blur">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          {/* Left: status */}
+          <div className="flex items-center gap-3">
+            <span className="relative flex h-3 w-3">
+              <span
+                className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${statusDot}`}
+              />
+              <span
+                className={`relative inline-flex h-3 w-3 rounded-full ${statusDot}`}
+              />
+            </span>
+            <div>
+              <h2 className="text-lg font-bold tracking-wide text-zinc-100">
+                DeFi Threat Radar
+              </h2>
+              <p className="text-xs font-mono tracking-widest text-zinc-400 uppercase">
+                {statusLabel}
+              </p>
+            </div>
           </div>
-        )}
+
+          {/* Right: mode toggle + counters */}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-950 p-1">
+              <button
+                type="button"
+                onClick={() => setMode("demo")}
+                className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+                  mode === "demo"
+                    ? "bg-cyan-600 text-white shadow-lg shadow-cyan-500/30"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                Demo Mode
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("live")}
+                className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+                  mode === "live"
+                    ? "bg-red-600 text-white shadow-lg shadow-red-500/30"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                Live Mode
+              </button>
+            </div>
+
+            <div className="hidden items-center gap-3 md:flex">
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-center">
+                <p className="text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">
+                  Threats
+                </p>
+                <p className="text-lg font-bold font-mono text-red-400">
+                  {threatCount}
+                </p>
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-center">
+                <p className="text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">
+                  Buffer
+                </p>
+                <p className="text-lg font-bold font-mono text-zinc-300">
+                  {liveThreats.length}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Results UI */}
-      {report && (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-            {/* Massive Risk Indicator */}
-            <div className={`col-span-1 flex flex-col items-center justify-center rounded-2xl border p-8 text-center shadow-lg ${getRiskBgClass(report.risk_level)}`}>
-              <p className="text-sm font-semibold tracking-wider text-zinc-400 uppercase">Risk Score</p>
-              <h3 className={`mt-2 text-7xl font-black tracking-tighter ${getRiskColorClass(report.risk_level)}`}>
-                {report.risk_score}
-              </h3>
-              <div className={`mt-4 inline-flex items-center rounded-full px-4 py-1.5 text-sm font-bold uppercase tracking-widest ${getRiskBgClass(report.risk_level)} ${getRiskColorClass(report.risk_level)}`}>
-                {report.risk_level}
-              </div>
-            </div>
+      {/* ── Scanline Overlay + Threat Feed ── */}
+      <div className="relative min-h-[420px] rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4 shadow-inner overflow-hidden">
+        {/* Decorative scanline */}
+        <div
+          className="pointer-events-none absolute inset-0 z-10 opacity-[0.03]"
+          style={{
+            backgroundImage:
+              "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.04) 2px, rgba(255,255,255,0.04) 4px)",
+          }}
+        />
 
-            {/* Base Transaction Details */}
-            <div className="col-span-1 md:col-span-2 rounded-2xl border border-zinc-800 bg-zinc-900 p-6 shadow-lg">
-              <h3 className="mb-4 text-lg font-semibold text-zinc-100">Transaction Details</h3>
-              <div className="space-y-4">
-                <div>
-                  <p className="text-xs font-semibold text-zinc-500 uppercase">Transaction Hash</p>
-                  <p className="mt-1 break-all text-sm font-mono text-zinc-300">{report.transaction_hash}</p>
-                </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <p className="text-xs font-semibold text-zinc-500 uppercase">From</p>
-                    <p className="mt-1 break-all text-sm font-mono text-zinc-300">{report.from || "N/A"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-zinc-500 uppercase">To</p>
-                    <p className="mt-1 break-all text-sm font-mono text-zinc-300">{report.to || "Contract Deployment"}</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                  <div>
-                    <p className="text-xs font-semibold text-zinc-500 uppercase">Value</p>
-                    <p className="mt-1 text-lg font-medium text-zinc-100">{report.value_eth} <span className="text-sm text-zinc-400">ETH</span></p>
-                  </div>
-                  {report.block_number && (
-                    <div>
-                      <p className="text-xs font-semibold text-zinc-500 uppercase">Block</p>
-                      <p className="mt-1 text-sm text-zinc-300">{report.block_number}</p>
-                    </div>
-                  )}
-                  {report.status && (
-                    <div>
-                      <p className="text-xs font-semibold text-zinc-500 uppercase">Status</p>
-                      <p className={`mt-1 text-sm font-medium ${report.status === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {report.status.toUpperCase()}
-                      </p>
-                    </div>
-                  )}
-                </div>
+        {/* Empty state */}
+        {liveThreats.length === 0 && (
+          <div className="flex h-80 items-center justify-center">
+            <div className="text-center">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900">
+                <svg
+                  className="h-7 w-7 animate-pulse text-cyan-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9.348 14.652a3.75 3.75 0 010-5.304m5.304 0a3.75 3.75 0 010 5.304m-7.425 2.121a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.807-3.808-9.98 0-13.788m13.788 0c3.808 3.808 3.808 9.981 0 13.788M12 12h.008v.008H12V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"
+                  />
+                </svg>
               </div>
+              <p className="text-sm font-medium text-zinc-400">
+                Awaiting incoming threat signals...
+              </p>
+              <p className="mt-1 text-xs text-zinc-600">
+                {mode === "demo"
+                  ? "Demo threats arrive every 3 seconds"
+                  : "Monitoring Ethereum mempool for suspicious activity"}
+              </p>
             </div>
           </div>
+        )}
 
-          {/* Flags List */}
-          {report.flags && report.flags.length > 0 && (
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-6 shadow-lg">
-              <h3 className="mb-4 text-lg font-semibold text-zinc-100">Identified Risk Factors</h3>
-              <ul className="space-y-3">
-                {report.flags.map((flag, idx) => {
-                  const [title, description] = flag.includes(': ') ? flag.split(': ') : ['FLAG', flag];
-                  return (
-                    <li key={idx} className="flex items-start gap-3 rounded-xl border border-zinc-800/50 bg-zinc-950/50 p-4">
-                      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-red-500">
-                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
+        {/* Threat cards */}
+        <div className="relative z-20 space-y-3">
+          <AnimatePresence initial={false}>
+            {liveThreats.map((threat, idx) => {
+              const rc = riskColor(threat.risk_level);
+              return (
+                <motion.div
+                  key={`${threat.transaction_hash}-${idx}`}
+                  initial={{ opacity: 0, y: -40, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ type: "spring", stiffness: 350, damping: 28 }}
+                  className={`rounded-xl border ${rc.border} ${rc.bg} p-4 shadow-lg ${rc.glow} backdrop-blur-sm`}
+                >
+                  {/* Card header */}
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3">
+                      {/* Risk badge */}
+                      <div
+                        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border ${rc.border} ${rc.bg} font-mono text-xl font-black ${rc.text}`}
+                      >
+                        {threat.risk_score}
                       </div>
                       <div>
-                        <p className="text-sm font-semibold tracking-wide text-zinc-200">{title}</p>
-                        <p className="mt-1 text-sm text-zinc-400">{description}</p>
+                        {/* Contract name */}
+                        <p className="text-sm font-bold text-zinc-100">
+                          {threat.contract_name
+                            ? `Target: ${threat.contract_name}`
+                            : threat.to
+                              ? "Unknown Contract"
+                              : "Contract Deployment"}
+                        </p>
+                        <p
+                          className={`text-xs font-semibold uppercase tracking-widest ${rc.text}`}
+                        >
+                          {threat.risk_level}
+                        </p>
                       </div>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          )}
-          
-          {report.flags && report.flags.length === 0 && (
-            <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-6 text-emerald-400 shadow-lg">
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <p className="font-medium tracking-wide">No suspicious flags detected for this transaction.</p>
-            </div>
-          )}
+                    </div>
+
+                    <div className="flex items-center gap-3 text-xs text-zinc-400">
+                      {threat.value_eth > 0 && (
+                        <span className="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 font-mono font-medium text-zinc-200">
+                          {threat.value_eth} ETH
+                        </span>
+                      )}
+                      {threat.block_number && (
+                        <span className="font-mono">
+                          Block #{threat.block_number}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Addresses */}
+                  <div className="mt-3 grid grid-cols-1 gap-1 sm:grid-cols-2">
+                    <p className="truncate text-xs text-zinc-500">
+                      <span className="text-zinc-600">FROM </span>
+                      <span className="font-mono text-zinc-400">
+                        {threat.from || "N/A"}
+                      </span>
+                    </p>
+                    <p className="truncate text-xs text-zinc-500">
+                      <span className="text-zinc-600">TO </span>
+                      <span className="font-mono text-zinc-400">
+                        {threat.to || "Contract Creation"}
+                      </span>
+                    </p>
+                  </div>
+
+                  {/* Flags */}
+                  {threat.flags.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {threat.flags.map((flag, fi) => {
+                        const isCritical =
+                          flag.startsWith("CRITICAL") ||
+                          flag.startsWith("MIXER");
+                        return (
+                          <span
+                            key={fi}
+                            className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium ${
+                              isCritical
+                                ? "bg-red-500/20 text-red-300 border border-red-500/30"
+                                : "bg-amber-500/15 text-amber-300 border border-amber-500/25"
+                            }`}
+                          >
+                            <svg
+                              className="h-2.5 w-2.5"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth={2.5}
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                              />
+                            </svg>
+                            {flag.length > 80
+                              ? flag.slice(0, 77) + "..."
+                              : flag}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Tx hash */}
+                  <p className="mt-2 truncate text-[10px] font-mono text-zinc-600">
+                    TX {threat.transaction_hash}
+                  </p>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
         </div>
-      )}
+      </div>
     </section>
   );
 }
