@@ -17,6 +17,21 @@ The platform is designed as a decoupled, high-performance architecture:
 - **Agentic AI Core (LangChain + Gemini 2.0 Flash):**
   A ReAct-style autonomous agent that accesses the ML models as tools to conduct complex fraud investigations.
 
+```mermaid
+graph TD
+    A[React/Vite Frontend] <-->|REST API / WebSockets| B[FastAPI Backend]
+    B --> C(ML 1: VotingClassifier)
+    B --> D(ML 2: GMM Anomaly)
+    B --> E(ML 3: RandomForest)
+    B --> F(ML 4: IsolationForest)
+    B <--> G{LangChain ReAct Agent}
+    G <-->|LLM Inference| H[Gemini 2.0 Flash]
+    C -.-> G
+    D -.-> G
+    E -.-> G
+    F -.-> G
+```
+
 ---
 
 ## 🧠 Machine Learning Pipeline
@@ -57,6 +72,27 @@ When a suspicious scenario is detected, the **LangChain ReAct Agent** engages:
 2. **Reasoning Chain:** It constructs a step-by-step evidence trail (visible in the UI).
 3. **Synthesis:** Powered by Gemini 2.0 Flash, it synthesizes the isolated ML outputs into a coherent human-readable report.
 4. **Action:** It assigns a final risk tier (CRITICAL, HIGH, MEDIUM, LOW) and suggests actionable recommendations (e.g., "Freeze Account", "Require Step-Up Auth").
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Agent as LangChain Agent
+    participant Gemini as Gemini 2.0 Flash
+    participant ML as ML Tools (4x Engines)
+    
+    User->>Agent: Submit suspicious scenario
+    Agent->>Gemini: Request next action (ReAct)
+    Gemini-->>Agent: Action: query_transaction_risk
+    Agent->>ML: Execute Transaction Ensemble
+    ML-->>Agent: Return SHAP features & risk score
+    Agent->>Gemini: Supply observation
+    Gemini-->>Agent: Action: query_behavior_anomaly
+    Agent->>ML: Execute GMM Anomaly Detector
+    ML-->>Agent: Return log-likelihood score
+    Agent->>Gemini: Supply observation
+    Gemini-->>Agent: Action: Final Answer
+    Agent-->>User: Structured Risk Report & Recommendations
+```
 
 *(Note: The system falls back gracefully to a robust rule-based engine if LLM API keys are unavailable, ensuring zero downtime).*
 
