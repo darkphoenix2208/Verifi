@@ -3,8 +3,10 @@ import { CoreBankingDashboard } from "./components/dashboards/CoreBankingDashboa
 import { EmployeeRiskDashboard } from "./components/dashboards/EmployeeRiskDashboard";
 import { KycVerificationPage } from "./components/kyc/KycVerificationPage";
 import { DeFiSurveillanceDashboard } from "./components/defi/DeFiSurveillanceDashboard";
+import { AIInvestigationDashboard } from "./components/agent/AIInvestigationDashboard";
+import { MLObservatoryDashboard } from "./components/observatory/MLObservatoryDashboard";
 
-type ViewMode = "core-banking" | "employee-risk" | "kyc-verification" | "defi-surveillance";
+type ViewMode = "core-banking" | "employee-risk" | "kyc-verification" | "defi-surveillance" | "ai-agent" | "ml-observatory";
 
 const NAV_ITEMS: { key: ViewMode; label: string; icon: JSX.Element }[] = [
   {
@@ -40,6 +42,24 @@ const NAV_ITEMS: { key: ViewMode; label: string; icon: JSX.Element }[] = [
     icon: (
       <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9.348 14.652a3.75 3.75 0 010-5.304m5.304 0a3.75 3.75 0 010 5.304m-7.425 2.121a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.807-3.808-9.98 0-13.788m13.788 0c3.808 3.808 3.808 9.981 0 13.788M12 12h.008v.008H12V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+      </svg>
+    ),
+  },
+  {
+    key: "ai-agent",
+    label: "AI Agent",
+    icon: (
+      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+      </svg>
+    ),
+  },
+  {
+    key: "ml-observatory",
+    label: "ML Models",
+    icon: (
+      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
       </svg>
     ),
   },
@@ -104,6 +124,8 @@ export default function App() {
           {viewMode === "employee-risk" ? <EmployeeRiskDashboard /> : null}
           {viewMode === "kyc-verification" ? <KycVerificationPage /> : null}
           {viewMode === "defi-surveillance" ? <DeFiSurveillanceDashboard /> : null}
+          {viewMode === "ai-agent" ? <AIInvestigationDashboard /> : null}
+          {viewMode === "ml-observatory" ? <MLObservatoryDashboard /> : null}
         </div>
       </main>
 
