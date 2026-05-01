@@ -14,22 +14,31 @@ The platform is designed as a decoupled, high-performance architecture:
   A dark-themed, glassmorphism-styled security dashboard. It features live WebSocket feeds, dynamic ML model observatories, and animated reasoning chains for the AI Agent.
 - **Backend (FastAPI):**
   A high-throughput API gateway that routes requests, maintains WebSocket connections for live DeFi radar feeds, and serves the ML inference engines.
-- **Agentic AI Core (LangChain + Gemini 2.0 Flash):**
-  A ReAct-style autonomous agent that accesses the ML models as tools to conduct complex fraud investigations.
+- **Hierarchical LangGraph Orchestrator:**
+  A stateful, multi-agent pipeline replacing the old single-agent design. It utilizes specialized nodes (Triage, Fiat Investigator, Crypto Investigator, RAG, and Synthesizer) coupled with NLI anti-hallucination guardrails to conduct complex fraud investigations.
 
 ```mermaid
 graph TD
     A[React/Vite Frontend] <-->|REST API / WebSockets| B[FastAPI Backend]
-    B --> C(ML 1: VotingClassifier)
+    B --> C(ML 1: Ensemble Scorer)
     B --> D(ML 2: GMM Anomaly)
-    B --> E(ML 3: RandomForest)
-    B --> F(ML 4: IsolationForest)
-    B <--> G{LangChain ReAct Agent}
-    G <-->|LLM Inference| H[Gemini 2.0 Flash]
-    C -.-> G
-    D -.-> G
-    E -.-> G
-    F -.-> G
+    B --> E(ML 3: IsolationForest)
+    B --> F(ML 4: Graph Centrality)
+    B <--> G{LangGraph Orchestrator}
+    
+    subgraph LangGraph Pipeline
+        G_T[Triage Node] -->|Fiat| G_F[Fiat Investigator]
+        G_T -->|Crypto| G_C[Crypto Investigator]
+        G_T -->|Both| G_F
+        G_F -.->|Both Route| G_C
+        G_F --> G_R[Threat Intel RAG]
+        G_C --> G_R
+        G_R --> G_S[CRO Synthesizer]
+        G_S --> G_NLI[NLI Verifier]
+    end
+    
+    G_S <-->|LLM Inference| H[Gemini 2.0 Flash]
+    G -.-> G_T
 ```
 
 ---
@@ -41,60 +50,62 @@ Verifi employs a multi-layered, specialized ML architecture. Each risk domain is
 ### 1. Transaction Fraud Detector (Ensemble Model)
 * **Type:** Soft-Voting Classifier Ensemble (`RandomForest` + `GradientBoosting` + `LogisticRegression`)
 * **Preprocessing:** SMOTE (Synthetic Minority Over-sampling Technique) for handling extreme class imbalance.
-* **Features:** Amount, Haversine distance, temporal features (hour/day), frequency-encoded categorical variables.
-* **Explainability (XAI):** Uses **SHAP (SHapley Additive exPlanations) TreeExplainer** to extract the top contributing features for every flagged transaction, explaining *why* the model made its decision (e.g., `amt (impact: +0.342)`).
+* **Explainability (XAI):** Uses **SHAP (SHapley Additive exPlanations)** to extract top contributing features for flagged transactions.
 
-### 2. Customer Behavior Anomaly Engine
-* **Type:** Unsupervised `GaussianMixture` (2-Component GMM with full covariance)
-* **Features:** Click velocity, session length, device change rates, location variance, and browser jump frequencies.
-* **Mechanics:** The model is trained on standard user distributions. It evaluates new sessions by computing the log-likelihood of the session's feature vector. Sessions falling below the 5th-percentile threshold are classified as anomalous.
-* **Risk Tiers:** NORMAL → SUSPICIOUS → ANOMALOUS
+### 2. Customer Behavior & Employee Threat
+* **Type:** Unsupervised `GaussianMixture` & `RandomForestRegressor`
+* **Mechanics:** Analyzes internal telemetry (failed logins, overrides) and session data (velocity, device changes) to assign a continuous risk score and log-likelihood anomaly rating.
 
-### 3. Employee Insider Threat Scorer
-* **Type:** `RandomForestRegressor`
-* **Features:** Failed logins, manual overrides, after-hours access, work duration, and role-based policies.
-* **Mechanics:** Analyzes internal telemetry to predict a continuous risk score.
-* **Explainability:** Factor-based attribution identifies top risk indicators (e.g., "Frequent manual overrides").
-
-### 4. Crypto / DeFi Threat Assessment
+### 3. Crypto / DeFi Threat Assessment
 * **Type:** Unsupervised `IsolationForest` (150 estimators, 5% contamination)
-* **Features:** Transaction Value (ETH), Gas Used, Gas Price (Gwei).
-* **Mechanics:** Trains on a synthetic distribution mapping normal Ethereum mainnet activity. It flags outliers operating on the fringe of the feature space, injecting high risk scores directly into the heuristic crypto analysis engine.
+* **Mechanics:** Trains on synthetic Ethereum mainnet activity to flag outlier transactions operating on the fringe of the feature space (Gas usage, Gwei price, Tx Value).
+
+### 4. Transaction Graph Analytics
+* **Type:** NetworkX Graph Machine Learning
+* **Mechanics:** Builds a directed graph of wallets, users, and exchanges. Computes **PageRank**, Eigenvector, and Betweenness Centrality (weighted by transaction volume) to identify potential money laundering hubs via 2-sigma anomaly detection.
+
+### 5. 2-Stage Hybrid Threat Intel RAG
+* **Type:** Parallel Sparse/Dense Retrieval + Cross-Encoder Reranking
+* **Mechanics:** 
+  1. **Retrieval**: Queries incoming risk profiles against historical attack vectors simultaneously using BM25 (sparse keyword) and `sentence-transformers` (dense cosine similarity).
+  2. **Fusion**: Merges both retriever outputs using Reciprocal Rank Fusion (RRF).
+  3. **Reranking**: Scores the fused list via a Cross-Encoder (`ms-marco-MiniLM-L-6-v2`) to surface the most relevant MITRE ATT&CK TTPs.
+
+### 6. Anti-Hallucination NLI Verification
+* **Type:** Natural Language Inference (Cross-Encoder)
+* **Mechanics:** Before the final Suspicious Activity Report (SAR) is served, the system runs a DeBERTa NLI cross-encoder model to verify that the LLM's claims strictly **entail** the raw database evidence. If a contradiction is detected (score > 0.5), the report is flagged for hallucinations.
 
 ---
 
-## 🤖 Multi-Tool Agentic Investigation Engine
+## 🤖 LangGraph Hierarchical Orchestrator
 
-Verifi replaces manual SOC (Security Operations Center) workflows with an autonomous AI investigator. 
+Verifi replaces manual SOC (Security Operations Center) workflows with a stateful, autonomous AI pipeline powered by **LangGraph**.
 
-When a suspicious scenario is detected, the **LangChain ReAct Agent** engages:
-1. **Tool Execution:** The agent autonomously queries the Transaction Scorer, Behavior GMM, Employee Scorer, and Crypto Engine.
-2. **Reasoning Chain:** It constructs a step-by-step evidence trail (visible in the UI).
-3. **Synthesis:** Powered by Gemini 2.0 Flash, it synthesizes the isolated ML outputs into a coherent human-readable report.
-4. **Action:** It assigns a final risk tier (CRITICAL, HIGH, MEDIUM, LOW) and suggests actionable recommendations (e.g., "Freeze Account", "Require Step-Up Auth").
+When a suspicious scenario is detected, the Orchestrator engages:
+1. **Triage Node:** Analyzes initial ML signals (fiat & crypto) and routes the investigation down the appropriate arms.
+2. **Parallel Investigators:** The `Fiat Investigator` and `Crypto Investigator` autonomously query internal ML engines and external APIs (Etherscan, Alchemy) to collect evidence.
+3. **Threat Intel RAG Node:** Executes the 2-Stage Hybrid retrieval to match the ongoing attack against historical MITRE TTPs.
+4. **CRO Synthesizer:** Powered by Gemini 2.0 Flash, it synthesizes the isolated ML outputs into a formal Suspicious Activity Report (SAR).
+5. **NLI Verifier:** The final guardrail cross-checks the LLM's output against the raw evidence to prevent hallucinations.
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant Agent as LangChain Agent
-    participant Gemini as Gemini 2.0 Flash
-    participant ML as ML Tools (4x Engines)
+    participant Graph as LangGraph Orchestrator
+    participant Nodes as Agent Nodes
+    participant Gemini as Gemini 2.0 (CRO)
     
-    User->>Agent: Submit suspicious scenario
-    Agent->>Gemini: Request next action (ReAct)
-    Gemini-->>Agent: Action: query_transaction_risk
-    Agent->>ML: Execute Transaction Ensemble
-    ML-->>Agent: Return SHAP features & risk score
-    Agent->>Gemini: Supply observation
-    Gemini-->>Agent: Action: query_behavior_anomaly
-    Agent->>ML: Execute GMM Anomaly Detector
-    ML-->>Agent: Return log-likelihood score
-    Agent->>Gemini: Supply observation
-    Gemini-->>Agent: Action: Final Answer
-    Agent-->>User: Structured Risk Report & Recommendations
+    User->>Graph: POST /api/langgraph/investigate
+    Graph->>Nodes: Triage (Route to Fiat/Crypto)
+    Nodes->>Nodes: Collect Evidence (Ensemble/IsolationForest)
+    Nodes->>Nodes: Hybrid RAG Search (BM25 + Dense)
+    Graph->>Gemini: Supply structured state
+    Gemini-->>Graph: Final JSON Verdict
+    Graph->>Nodes: Run NLI DeBERTa Verification
+    Graph-->>User: Stateful Investigation Result (SAR)
 ```
 
-*(Note: The system falls back gracefully to a robust rule-based engine if LLM API keys are unavailable, ensuring zero downtime).*
+*(Note: The system features robust graceful fallbacks. If LangGraph, LLM APIs, or heavy ML models fail to load, the system degrades to deterministic, rule-based execution and heuristic fallbacks to ensure zero downtime).*
 
 ---
 
