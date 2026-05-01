@@ -801,6 +801,30 @@ async def agent_investigate(req: AgentInvestigateV2Request) -> Dict[str, Any]:
             detail=f"Investigation agent failed: {exc}",
         ) from exc
 
+# ---------------------------------------------------------------------------
+# LangGraph Hierarchical Orchestrator
+# ---------------------------------------------------------------------------
+class LangGraphRequest(BaseModel):
+    scenario: str = "Suspicious high-value transaction detected from a new device"
+    transaction_id: Optional[str] = None
+
+
+@app.post("/api/langgraph/investigate")
+async def langgraph_investigate(req: LangGraphRequest) -> Dict[str, Any]:
+    """Run the hierarchical LangGraph stateful orchestrator pipeline."""
+    try:
+        from langgraph_pipeline.orchestrator import run_langgraph_investigation
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, run_langgraph_investigation, req.scenario, req.transaction_id
+        )
+        return result
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"LangGraph orchestrator failed: {exc}",
+        ) from exc
+
 
 # ---------------------------------------------------------------------------
 # ML Model Observatory
