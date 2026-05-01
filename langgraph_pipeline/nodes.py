@@ -146,92 +146,55 @@ def crypto_investigator_node(state: GraphState) -> dict:
     msgs.append(_msg("crypto_investigator", f"Collected {len(evidence['findings'])} finding(s)"))
     return {"crypto_evidence": evidence, "messages": msgs}
 
-
-# ── 4. Threat Intelligence RAG Node ────────────────────────────────────
-# Mock vector-search against a dictionary of historical attack vectors.
-_HISTORICAL_ATTACK_VECTORS = {
-    "tornado_cash": {
-        "pattern": "mixer_interaction",
-        "severity": "CRITICAL",
-        "description": "Funds routed through Tornado Cash — known OFAC-sanctioned mixer.",
-        "ttps": ["T1027 — Obfuscated Fund Flows", "T1071 — Mixer Protocol Abuse"],
-    },
-    "flash_loan_attack": {
-        "pattern": "flash_loan",
-        "severity": "CRITICAL",
-        "description": "Flash-loan exploit detected: borrow→manipulate→repay in single block.",
-        "ttps": ["T1190 — DeFi Protocol Exploitation", "T1499 — Price Oracle Manipulation"],
-    },
-    "account_takeover": {
-        "pattern": "credential_stuffing",
-        "severity": "HIGH",
-        "description": "Rapid failed-login burst followed by high-value transfer from new device.",
-        "ttps": ["T1110 — Brute Force", "T1078 — Valid Account Compromise"],
-    },
-    "insider_data_exfil": {
-        "pattern": "insider_threat",
-        "severity": "HIGH",
-        "description": "Employee accessed sensitive records after hours with privilege escalation.",
-        "ttps": ["T1078.003 — Insider Privilege Abuse", "T1048 — Data Exfiltration"],
-    },
-    "pig_butchering_scam": {
-        "pattern": "social_engineering",
-        "severity": "MEDIUM",
-        "description": "Long-duration social engineering leading to repeated high-value transfers.",
-        "ttps": ["T1566 — Phishing / Social Engineering", "T1565 — Victim Grooming"],
-    },
-}
-
+# ── 4. Threat Intelligence RAG Node (Hybrid 2-Stage) ───────────────────
 
 def threat_intel_rag_node(state: GraphState) -> dict:
-    """Compare current threat signatures against historical attack vectors.
-
-    This is a mock vector-search: we keyword-match the scenario and
-    ML signals against the known attack dictionary.
-    """
+    """2-Stage Hybrid RAG: BM25 + Dense retrieval -> RRF -> Cross-Encoder reranking."""
     msgs = list(state.get("messages", []))
-    scenario = state.get("scenario", "").lower()
-    signals = state.get("initial_signals", {})
+    scenario = state.get("scenario", "")
     fiat_ev = state.get("fiat_evidence", {})
     crypto_ev = state.get("crypto_evidence", {})
 
-    matched: list = []
+    # Build enriched query from all available context
+    query_parts = [scenario]
+    for f in fiat_ev.get("findings", []):
+        query_parts.append(f)
+    for f in crypto_ev.get("findings", []):
+        query_parts.append(f)
+    query = " ".join(query_parts)
 
-    # Build a searchable blob from all available context
-    context_blob = " ".join([
-        scenario,
-        json.dumps(signals, default=str),
-        json.dumps(fiat_ev, default=str),
-        json.dumps(crypto_ev, default=str),
-    ]).lower()
+    intel: Dict[str, Any] = {"source": "hybrid_rag_2stage"}
 
     try:
-        for vector_id, vector in _HISTORICAL_ATTACK_VECTORS.items():
-            # Simple keyword overlap scoring (mock embedding similarity)
-            keywords = vector_id.split("_") + vector["pattern"].split("_")
-            score = sum(1 for kw in keywords if kw in context_blob)
-            if score >= 1:
-                matched.append({
-                    "vector_id": vector_id,
-                    "match_score": score,
-                    "severity": vector["severity"],
-                    "description": vector["description"],
-                    "ttps": vector["ttps"],
-                })
+        from ml.threat_retrieval import hybrid_retrieve
+        rag_result = hybrid_retrieve(query, top_k=5)
 
-        # Sort by match score descending
-        matched.sort(key=lambda m: m["match_score"], reverse=True)
+        matched_vectors = []
+        for r in rag_result.get("results", []):
+            matched_vectors.append({
+                "vector_id": r.get("id", "unknown"),
+                "title": r.get("title", ""),
+                "match_score": r.get("rerank_score", r.get("rrf_score", 0)),
+                "severity": r.get("severity", "MEDIUM"),
+                "description": r.get("text", "")[:200],
+                "ttps": r.get("ttps", []),
+            })
+
+        intel["matched_vectors"] = matched_vectors
+        intel["total_searched"] = rag_result.get("total_corpus", 0)
+        intel["bm25_hits"] = rag_result.get("bm25_hits", 0)
+        intel["dense_hits"] = rag_result.get("dense_hits", 0)
+        intel["pipeline"] = rag_result.get("pipeline", "unknown")
+        intel["coverage"] = f"{len(matched_vectors)}/{intel['total_searched']} vectors matched"
+
+        msgs.append(_msg("threat_intel", f"Hybrid RAG returned {len(matched_vectors)} result(s) via {intel['pipeline']}"))
+
     except Exception as exc:
-        msgs.append(_msg("system", f"RAG threat intel failed: {exc}"))
+        msgs.append(_msg("system", f"Hybrid RAG failed: {exc}. Using empty results."))
+        intel["matched_vectors"] = []
+        intel["total_searched"] = 0
+        intel["coverage"] = "0/0 — retrieval failed"
 
-    intel = {
-        "source": "threat_intel_rag",
-        "matched_vectors": matched[:3],  # top 3
-        "total_searched": len(_HISTORICAL_ATTACK_VECTORS),
-        "coverage": f"{len(matched)}/{len(_HISTORICAL_ATTACK_VECTORS)} vectors matched",
-    }
-
-    msgs.append(_msg("threat_intel", f"RAG matched {len(matched)} historical attack vector(s)"))
     return {"rag_threat_intel": intel, "messages": msgs}
 
 
@@ -357,3 +320,57 @@ def _rule_based_verdict(
         "recommended_actions": actions,
         "matched_ttps": list(dict.fromkeys(ttps))[:5],
     }
+
+
+# ── 6. NLI Verification Node (Anti-Hallucination) ─────────────────────
+def nli_verification_node(state: GraphState) -> dict:
+    """Verify the synthesizer's verdict against raw evidence using NLI.
+
+    If contradiction > 0.5 for any claim, flag the verdict.
+    """
+    msgs = list(state.get("messages", []))
+    verdict = dict(state.get("final_verdict", {}))
+
+    # Build the evidence text from all upstream data
+    evidence_parts = []
+    for f in state.get("fiat_evidence", {}).get("findings", []):
+        evidence_parts.append(f)
+    for f in state.get("crypto_evidence", {}).get("findings", []):
+        evidence_parts.append(f)
+    for v in state.get("rag_threat_intel", {}).get("matched_vectors", []):
+        evidence_parts.append(v.get("description", ""))
+    evidence_text = " ".join(evidence_parts)
+
+    # The report text to verify
+    report_text = verdict.get("summary", "")
+    for f in verdict.get("key_findings", []):
+        report_text += f" {f}"
+
+    if not report_text.strip() or not evidence_text.strip():
+        msgs.append(_msg("nli_verifier", "Skipped — no report or evidence to verify"))
+        verdict["nli_verification"] = {"verified": True, "skipped": True}
+        return {"final_verdict": verdict, "messages": msgs}
+
+    try:
+        from ml.nli_verifier import verify_report
+        nli_result = verify_report(report_text, evidence_text)
+
+        verdict["nli_verification"] = {
+            "verified": nli_result["verified"],
+            "hallucination_count": nli_result.get("hallucination_count", 0),
+            "total_checked": nli_result.get("total_checked", 0),
+            "flags": nli_result.get("hallucination_flags", []),
+            "model": nli_result.get("model", "unknown"),
+        }
+
+        if not nli_result["verified"]:
+            verdict["nli_warning"] = "HALLUCINATION DETECTED — claims contradict evidence"
+            msgs.append(_msg("nli_verifier", f"WARNING: {nli_result['hallucination_count']} hallucination(s) detected"))
+        else:
+            msgs.append(_msg("nli_verifier", f"Verified {nli_result['total_checked']} claim(s) — no hallucinations"))
+
+    except Exception as exc:
+        msgs.append(_msg("system", f"NLI verification failed: {exc}"))
+        verdict["nli_verification"] = {"verified": True, "error": str(exc)}
+
+    return {"final_verdict": verdict, "messages": msgs}

@@ -19,3 +19,6 @@ web3
 requests
 shap
 langgraph
+sentence-transformers
+rank-bm25
+networkx

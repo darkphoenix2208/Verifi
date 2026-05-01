@@ -827,6 +827,19 @@ async def langgraph_investigate(req: LangGraphRequest) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Graph ML — PageRank Centrality Analysis
+# ---------------------------------------------------------------------------
+@app.get("/api/ml/graph-centrality")
+async def graph_centrality(top_k: int = 10) -> Dict[str, Any]:
+    """Return transaction graph nodes ranked by PageRank anomaly score."""
+    try:
+        from ml.graph_analytics import compute_pagerank_anomalies
+        return compute_pagerank_anomalies(top_k=top_k)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Graph analytics failed: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
 # ML Model Observatory
 # ---------------------------------------------------------------------------
 @app.get("/api/ml/observatory")

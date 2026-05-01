@@ -21,6 +21,7 @@ from langgraph_pipeline.nodes import (
     crypto_investigator_node,
     threat_intel_rag_node,
     synthesizer_node,
+    nli_verification_node,
 )
 
 # Graceful import — fall back to a plain sequential runner if
@@ -71,6 +72,7 @@ def build_graph():
     graph.add_node("crypto_investigator", crypto_investigator_node)
     graph.add_node("threat_intel_rag", threat_intel_rag_node)
     graph.add_node("synthesizer", synthesizer_node)
+    graph.add_node("nli_verifier", nli_verification_node)
 
     # Entry point
     graph.set_entry_point("triage")
@@ -86,7 +88,7 @@ def build_graph():
         },
     )
 
-    # Fiat → crypto (only on "both" route) or → threat_intel_rag
+    # Fiat -> crypto (only on "both" route) or -> threat_intel_rag
     def _after_fiat(state: GraphState) -> str:
         if state.get("route") == "both":
             return "crypto_investigator"
@@ -101,17 +103,15 @@ def build_graph():
         },
     )
 
-    # Crypto → threat_intel_rag (always)
+    # Crypto -> threat_intel_rag (always)
     graph.add_edge("crypto_investigator", "threat_intel_rag")
 
-    # Threat intel → synthesizer
+    # Threat intel -> synthesizer -> NLI verifier -> END
     graph.add_edge("threat_intel_rag", "synthesizer")
+    graph.add_edge("synthesizer", "nli_verifier")
+    graph.add_edge("nli_verifier", END)
 
-    # Synthesizer → END
-    graph.add_edge("synthesizer", END)
-
-    # Compile (HITL breakpoint is simulated via reasoning trace;
-    # interrupt_before is omitted for API auto-approval mode)
+    # Compile
     compiled = graph.compile()
 
     return compiled
@@ -222,4 +222,5 @@ def _sequential_fallback(state: GraphState) -> GraphState:
         state = {**state, **crypto_investigator_node(state)}
     state = {**state, **threat_intel_rag_node(state)}
     state = {**state, **synthesizer_node(state)}
+    state = {**state, **nli_verification_node(state)}
     return state
