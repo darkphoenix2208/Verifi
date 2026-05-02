@@ -1141,6 +1141,31 @@ async def graph_centrality(top_k: int = 10) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Graph analytics failed: {exc}") from exc
 
 
+# ---------------------------------------------------------------------------
+# RLHF — Human Feedback Endpoint
+# ---------------------------------------------------------------------------
+class FeedbackRequest(BaseModel):
+    transaction_id: str
+    is_fraud: bool
+
+@app.post("/api/ml/feedback")
+async def submit_feedback(req: FeedbackRequest) -> Dict[str, Any]:
+    """Log a human analyst's fraud verdict for future model retraining."""
+    try:
+        from ml.feedback_loop import log_human_feedback
+        result = log_human_feedback(
+            transaction_id=req.transaction_id,
+            human_label=req.is_fraud,
+        )
+        if not result.get("logged"):
+            raise HTTPException(status_code=500, detail=result.get("error", "Logging failed"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Feedback logging failed: {exc}") from exc
+
+
 if __name__ == "__main__":
     import uvicorn
 

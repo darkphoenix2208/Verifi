@@ -1,0 +1,9 @@
+[
+  {
+    "transaction_id": "TX-TEST-001",
+    "human_label": true,
+    "original_score": 85.5,
+    "timestamp": 1777731840.6127005,
+    "timestamp_iso": "2026-05-02T14:24:00Z"
+  }
+]
