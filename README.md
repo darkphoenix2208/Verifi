@@ -24,6 +24,9 @@ graph TD
     B --> D(ML 2: GMM Anomaly)
     B --> E(ML 3: IsolationForest)
     B --> F(ML 4: Graph Centrality)
+    B --> RLHF[POST /api/ml/feedback]
+    RLHF --> JSON[(data/rlhf_logs.json)]
+    
     B <--> G{LangGraph Orchestrator}
     
     subgraph LangGraph Pipeline
@@ -35,6 +38,8 @@ graph TD
         G_C --> G_R
         G_R --> G_S[CRO Synthesizer]
         G_S --> G_NLI[NLI Verifier]
+        G_NLI --> G_CIT[Citation Guard]
+        G_CIT --> G_CONF[Conformal Calibrator]
     end
     
     G_S <-->|LLM Inference| H[Gemini 2.0 Flash]
@@ -75,6 +80,18 @@ Verifi employs a multi-layered, specialized ML architecture. Each risk domain is
 * **Type:** Natural Language Inference (Cross-Encoder)
 * **Mechanics:** Before the final Suspicious Activity Report (SAR) is served, the system runs a DeBERTa NLI cross-encoder model to verify that the LLM's claims strictly **entail** the raw database evidence. If a contradiction is detected (score > 0.5), the report is flagged for hallucinations.
 
+### 7. Conformal Prediction Calibrator
+* **Type:** Uncertainty Estimation
+* **Mechanics:** Wraps point risk scores (e.g., 72) and model uncertainty metrics to output a calibrated Confidence Interval (e.g., `[69, 75]`). If the ML model's uncertainty spread exceeds 15 points, the prediction is flagged as `requires_human_review`.
+
+### 8. Deterministic Citation Guardrail
+* **Type:** Regex Verification
+* **Mechanics:** Enforces a strict "No Evidence, No Talk" policy. It scans the LLM output for `[Source: ID]` tags and cross-references them against a whitelist of valid DB evidence IDs. Any hallucinated sources instantly flag the output.
+
+### 9. RLHF Feedback Loop
+* **Type:** Human-in-the-Loop Logging
+* **Mechanics:** A dedicated API endpoint (`POST /api/ml/feedback`) captures human analyst verdicts (Fraud/Not Fraud) on flagged transactions. These corrections are written to a structured JSON log, enabling future model retraining and fine-tuning via `partial_fit`.
+
 ---
 
 ## 🤖 LangGraph Hierarchical Orchestrator
@@ -102,6 +119,8 @@ sequenceDiagram
     Graph->>Gemini: Supply structured state
     Gemini-->>Graph: Final JSON Verdict
     Graph->>Nodes: Run NLI DeBERTa Verification
+    Graph->>Nodes: Run Citation Guard
+    Graph->>Nodes: Calibrate Confidence Intervals
     Graph-->>User: Stateful Investigation Result (SAR)
 ```
 
